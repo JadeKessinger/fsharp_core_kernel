@@ -10,10 +10,16 @@ module Flag =
     val optional: 'a Arg_type.t -> name: string -> doc: string -> 'a option t
     val no_arg: name: string -> doc: string -> bool t
 
+module Anon =
+    type 'a t
+    val required: 'a Arg_type.t -> 'a t
+    val optional: 'a Arg_type.t -> 'a option t
+
 module Param =
     type 'a t
     val parse: 'a t -> string list -> 'a * string list
     val flag: 'a Flag.t -> 'a t
+    val anon: 'a Anon.t -> 'a t
 
     [<Sealed>]
     type ResultBuilder =

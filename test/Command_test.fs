@@ -45,14 +45,53 @@ module Test =
 
     let (test_param: t Param.t) = Param.flag (test_flag: t Flag.t)
 
+module Anon_req_test =
+    type t = string
+    let (anon_req_arg: t Arg_type.t) = Arg_type.create (fun string -> string)
+    let (anon_req_anon: t Anon.t) = Anon.required (anon_req_arg: t Arg_type.t)
+    let (anon_req_param: t Param.t) = Param.anon (anon_req_anon: t Anon.t)
 
-let run_test
+module Anon_opt_test =
+    type t = string
+    let (anon_opt_arg: t Arg_type.t) = Arg_type.create (fun string -> string)
+    let (anon_opt_anon: t option Anon.t) = Anon.optional (anon_opt_arg: t Arg_type.t)
+    let (anon_opt_param: t option Param.t) = Param.anon (anon_opt_anon: t option Anon.t)
+
+
+let run_flags_test
     (expected_output: (string * bool * string) list)
     (param: (string * No_arg_test.t * string) list Param.t)
     (args: string list)
     =
     let x, _ = Param.parse param args
     Assert.AreEqual(expected_output, x)
+
+let run_anons_test
+    (expected_output: (string * string * string) list)
+    (param: (string * string * string) list Param.t)
+    (args: string list)
+    =
+    let x, _ = Param.parse param args
+    Assert.AreEqual(expected_output, x)
+
+let test_printed_output
+    (param: unit Param.t)
+    (args: string list)
+    (expected_exit_code: int)
+    (expected_output: string list)
+    (lines_of_output: int)
+    =
+    use string_writer = new StringWriter()
+    Console.SetOut(string_writer)
+    Assert.AreEqual(expected_exit_code, (run param args))
+
+    let output =
+        string_writer.ToString().Split("\n")
+        |> Array.toList
+        |> List.take lines_of_output
+
+    Assert.AreEqual(expected_output, output)
+
 
 
 [<Test>]
@@ -77,20 +116,17 @@ let ``flags`` () =
         }
 
     let required_args = [ "{ length = 4 }", false, "no opt" ]
-    run_test required_args x [ "-req"; "test" ]
+    run_flags_test required_args x [ "-req"; "test" ]
 
     let optional_args = [ "{ length = 4 }", false, "opt" ]
-    run_test optional_args x [ "-req"; "test"; "-opt"; "opt" ]
+    run_flags_test optional_args x [ "-req"; "test"; "-opt"; "opt" ]
 
     let no_args = [ "{ length = 4 }", true, "no opt" ]
-    run_test no_args x [ "-req"; "test"; "-no_arg" ]
+    run_flags_test no_args x [ "-req"; "test"; "-no_arg" ]
 
 [<Test>]
 [<Category("Command_tests")>]
 let ``help_test`` () =
-    use string_writer = new StringWriter()
-    Console.SetOut(string_writer)
-
     let test_param = Test.test_param
 
     let x =
@@ -99,24 +135,18 @@ let ``help_test`` () =
             return printf "%A" test
         }
 
-    Assert.AreEqual(0, (run x [ "-help" ]))
-    let output = string_writer.ToString()
-
     let expected_output =
-        "
-possible flags:
+        [ ""
+          "possible flags:"
+          ""
+          "-test                Test flag doc" ]
 
--test                Test flag doc
-
-"
-
-    Assert.AreEqual(output, expected_output)
+    test_printed_output x [ "-help" ] 0 expected_output 4
+    test_printed_output x [ "--h" ] 0 expected_output 4
 
 [<Test>]
 [<Category("Command_tests")>]
 let ``unknown_flag`` () =
-    use string_writer = new StringWriter()
-    Console.SetOut(string_writer)
 
     let test_param = Opt_test.opt_param
 
@@ -126,20 +156,15 @@ let ``unknown_flag`` () =
             return printf "%A" test
         }
 
-    Assert.AreEqual(1, run x [ "-unknown" ])
-    let output = string_writer.ToString().Split("\n")
-
     let expected_output =
-        "String  \"System.Exception: Unknown flag -unknown, refer to -help for possible flags"
+        [ "String"
+          "  \"System.Exception: Unknown flag -unknown, refer to -help for possible flags" ]
 
-    Assert.AreEqual(output[0] + output[1], expected_output)
+    test_printed_output x [ "-unknown" ] 1 expected_output 2
 
 [<Test>]
 [<Category("Command_tests")>]
 let ``no_required_arg`` () =
-    use string_writer = new StringWriter()
-    Console.SetOut(string_writer)
-
     let test_param = Test.test_param
 
     let x =
@@ -148,10 +173,40 @@ let ``no_required_arg`` () =
             return printf "%A" test
         }
 
-    Assert.AreEqual(1, run x [])
-    let output = string_writer.ToString().Split("\n")
-
     let expected_output =
-        "String  \"System.Exception: Required flag -test not supplied, refer to -help"
+        [ "String"
+          "  \"System.Exception: Required flag -test not supplied, refer to -help" ]
 
-    Assert.AreEqual(output[0] + output[1], expected_output)
+    test_printed_output x [] 1 expected_output 2
+
+[<Test>]
+[<Category("Command_tests")>]
+let ``anons`` () =
+    let create_arg_string flag anon_req anon_opt =
+        match anon_opt with
+        | Some anon_opt -> [ flag, anon_req, anon_opt ]
+        | None -> [ flag, anon_req, "no anon opt" ]
+
+    let test_param = Test.test_param
+    let anon_req_param = Anon_req_test.anon_req_param
+    let anon_opt_param = Anon_opt_test.anon_opt_param
+
+    let x =
+        Param.let_syntax {
+            let! (test: Test.t) = (test_param: Test.t Param.t)
+            and! (req_anon: Anon_req_test.t) = (anon_req_param: Anon_req_test.t Param.t)
+            and! (opt_anon: Anon_opt_test.t option) = (anon_opt_param: Anon_opt_test.t option Param.t)
+            return create_arg_string test req_anon opt_anon
+        }
+
+    let required_anon = [ "test", "req anon test", "no anon opt" ]
+    run_anons_test required_anon x [ "-test"; "test"; "req anon test" ]
+    let optional_anon = [ "test", "req anon test", "opt anon provided" ]
+
+    run_anons_test
+        optional_anon
+        x
+        [ "-test"
+          "test"
+          "req anon test"
+          "opt anon provided" ]
